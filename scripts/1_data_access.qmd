@@ -1,0 +1,91 @@
+---
+title: "EDITO data access" # title of the notebook
+author: "Virginie Sonnet" 
+date: 2025-09-10
+description: 
+    Access the data needed in EDITO.
+html: 
+theme: sandstone
+#mainfont: "LM Roman"
+fontsize: 0.99em
+toc: true # table of contents
+toc-depth: 5 
+toc-location: left # table of contents on the left 
+lightbox: TRUE # allows to click on an image to zoom in the HTML document
+embed-resources: true # avoid having dependencies in an extra folder
+smooth-scroll: true
+editor: visual
+code-overflow: wrap
+code-fold: false
+execute:
+    eval: true # run the code chunks FALSE/TRUE
+    echo: true # print the source code FALSE/TRUE
+    error: true # print error messages FALSE/TRUE
+    message: false # print any message FALSE/TRUE
+    warning: false # print warning message FALSE/TRUE
+    cache: false 
+---
+
+```{r}
+#| eval: false
+#| echo: false
+
+Other outputs: pdf_document, html_notebook, word_document 
+The HTML below just says to use the "LM Roman" family as font (kind of Arial?) and if you want the Latex font, you just need "Latin Modern Roman". The line below indicates that the text has to be justified. 
+```
+
+```{r}
+#| include: false
+
+# make sure that no object is in the environment and collect the garbage 
+rm(list=ls())
+gc()
+```
+
+```{r}
+#| results: hide
+
+# packages
+```
+
+# Introduction
+
+------------------------------------------------------------------------
+
+For this proof of operability project we need: \* Ramondenc et al. carbon export database: in personal storage \* Climatologies: in personal storage for now, from Schickele et al. =\> meant to be updated for Ranini et al. =\> meant to be directly calculated within the EDITO \* UVP particles: Kiko et al. 2022 =\> meant to be expanded =\> meant to be available in EDITO automatically \* CEPHALOPOD: download from github =\> meant to be a process in EDITO
+
+# Carbon database
+
+------------------------------------------------------------------------
+
+```{bash}
+mc cp s3/oidc-vsonnet/Global_POC_Database_21022025.csv ~/work/PSDtoCarbonExport-short/data
+```
+
+# Climatologies
+
+------------------------------------------------------------------------
+
+```{bash}
+mc cp --recursive s3/oidc-vsonnet/Schickele_climatologies ~/work/PSDtoCarbonExport-short/data
+```
+
+# UVP particles dataset
+
+------------------------------------------------------------------------
+
+```{bash}
+mc cp --recursive s3/oidc-vsonnet/UVP_particles ~/work/PSDtoCarbonExport-short/data
+```
+
+# Cephalopod
+
+------------------------------------------------------------------------
+
+```{bash}
+cd ../functions
+# clone only the lastest commit snapshot 
+git clone --depth 1 https://github.com/alexschickele/CEPHALOPOD.git
+# remove the git file to have it as a regular folder
+rm -rf CEPHALOPOD/.git
+```
