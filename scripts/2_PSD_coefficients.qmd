@@ -74,6 +74,9 @@ uvppart <- uvppart %>%
   left_join(select(names,dbname,geometric_mean)) %>% 
   # update the NA of class45
   mutate(geometric_mean=ifelse(dbname=="class45",26,geometric_mean))
+
+rm(names)
+gc()
 ```
 
 # QC
@@ -91,6 +94,8 @@ uvppart <- filter(uvppart,geometric_mean > 0.2 & geometric_mean < 5)
 ## Abundance threshold
 
 Consider that if there are 4 or less ROI (particles) in a size bin, then all upper size bins should be removed. There wasn't enough volume and particle sampled to have a statistical distribution and consider this is representative of the water column rather than driven by chance encounters.
+
+Note: this QC needs to take into account the number of classes left (i.e. 3 classes, especially the first ones will focus on the small bell shape at the beginning rather than the whole spectra shape)
 
 ```{r}
 uvppart <- uvppart %>% 
@@ -118,6 +123,7 @@ uvppart <- uvppart %>%
   filter(depth_bottom >= 200) %>% 
   # focus on the depths between 15 and 150m
   filter(depth > 15 & depth < 225)
+gc()
 ```
 
 # Processing
@@ -137,7 +143,7 @@ uvppart <- uvppart %>%
 ```{r}
 uvppart <- uvppart %>%
   # log-transformed median concentration over depth 
-  group_by(psampleid,type,dbname,geometric_mean) %>% 
+  group_by(psampleid,dbname,geometric_mean) %>% 
   summarize(logconc=log10(median(conc))) %>% 
   # log-transformed size 
   mutate(logsize=log10(geometric_mean))
@@ -151,7 +157,7 @@ We do a polynomial fit of degree 2, following the suggestion from Ranini et al. 
 # group the data by sampleid
 fitted_models <- uvppart %>%
   arrange(psampleid,dbname) %>%
-  group_by(psampleid,type) %>%
+  group_by(psampleid) %>%
   do({
     # fit a polynomial model of degree 2
     model <- lm(logconc ~ logsize + I(logsize^2), data = .)
@@ -160,7 +166,7 @@ fitted_models <- uvppart %>%
     rmse_val <- sqrt(mean(residuals(model)^2))
     
     # extract coefficients
-    coefs <- tidy(model)
+    coefs <- broom::tidy(model)
     coefs %>% 
       bind_rows(tibble(
         term = "RMSE",
@@ -171,9 +177,11 @@ fitted_models <- uvppart %>%
 
 # pivot the coefficients to wide format for easier access
 coefficients <- fitted_models %>%
-  select(psampleid,type,term,estimate) %>% 
+  select(psampleid,term,estimate) %>% 
   pivot_wider(names_from = term, values_from = estimate) %>%
-  rename(Intercept = `(Intercept)`, Linear = `geometric_mean`, Quadratic = `I(geometric_mean^2)`) %>% 
+  rename(Intercept = `(Intercept)`, Linear = `logsize`, Quadratic = `I(logsize^2)`) %>% 
+  # remove samples with NA (92)
+  filter(!is.na(Quadratic)) %>% 
   pivot_longer(Intercept:RMSE,names_to = "term", values_to = "estimate") 
 ```
 
@@ -181,19 +189,20 @@ coefficients <- fitted_models %>%
 
 ------------------------------------------------------------------------
 
-## Formatting 
+## Formatting
 
-Note that Cephalopod will need to be updated for negative values, and that Cephalopod-factor (Sonnet et al.) will be used for depth-resolved bins and QC in the extensive version. 
+Note that Cephalopod will need to be updated for negative values, and that Cephalopod-factor (Sonnet et al.) will be used for depth-resolved bins and QC in the extensive version.
 
 ```{r}
 cephalopod <- coefficients %>% 
+  filter(term != "RMSE") %>% 
   group_by(term) %>% 
   mutate(worms_id=term,
          # correct the negative values of the coefficients for Cephalopod
          estimate=estimate+abs(min(estimate))) %>% 
   ungroup() %>% 
   rename(measurementvalue=estimate) %>% 
-  left_join(distinct(uvppart,psampleid,
+  left_join(distinct(sp,psampleid,
                    decimallatitude=latitude,
                    decimallongitude=longitude,sampledate)) %>% 
   # set arbitrary depth, it will only be used in filtering 
@@ -206,18 +215,21 @@ cephalopod <- coefficients %>%
   select(psampleid,measurementvalue,measurementunit,worms_id,scientificname,taxonrank,month,year,depth,decimallatitude,decimallongitude)
 ```
 
-## Export 
+## Export
 
-We can export it to our running session. 
+We can export it to our running session.
 
 ```{r}
 write_csv(cephalopod,"../data/cephalopod_power_law_coefficients.csv")
 ```
 
-And copy it to our internal storage. 
+And copy it to our internal storage.
 
 ```{bash}
 mc cp ~/work/PSDtoCarbonExport-short/data/cephalopod_power_law_coefficients.csv s3/oidc-vsonnet
 ```
 
-
+```{r}
+rm(list=ls())
+gc()
+```
