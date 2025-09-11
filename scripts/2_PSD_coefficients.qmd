@@ -1,0 +1,207 @@
+---
+title: "PSD coefficients for modelling" # title of the notebook
+author: "Virginie Sonnet" 
+date: 2025-09-10
+description: 
+    Process the particle size distribution from the UVP to QC, extract the coefficients of the polynomial curve and prepare for Cephalopod input. 
+html: 
+theme: sandstone
+#mainfont: "LM Roman"
+fontsize: 0.99em
+toc: true # table of contents
+toc-depth: 5 
+toc-location: left # table of contents on the left 
+lightbox: TRUE # allows to click on an image to zoom in the HTML document
+embed-resources: true # avoid having dependencies in an extra folder
+smooth-scroll: true
+editor: visual
+code-overflow: wrap
+code-fold: false
+execute:
+    eval: true # run the code chunks FALSE/TRUE
+    echo: true # print the source code FALSE/TRUE
+    error: true # print error messages FALSE/TRUE
+    message: false # print any message FALSE/TRUE
+    warning: false # print warning message FALSE/TRUE
+    cache: false 
+---
+
+```{r}
+#| eval: false
+#| echo: false
+
+Other outputs: pdf_document, html_notebook, word_document 
+The HTML below just says to use the "LM Roman" family as font (kind of Arial?) and if you want the Latex font, you just need "Latin Modern Roman". The line below indicates that the text has to be justified. 
+```
+
+```{r}
+#| include: false
+
+# make sure that no object is in the environment and collect the garbage 
+rm(list=ls())
+gc()
+```
+
+```{r}
+#| results: hide
+
+# packages
+```
+
+# Data
+
+------------------------------------------------------------------------
+
+```{r}
+sp <- read_csv("../data/UVP_particles/transit_all_uvp_samples.csv")
+uvppart <- read_csv("../data/UVP_particles/transit_all_uvp_particles.csv")
+```
+
+Let's add the real names and geometric size associated with the classes: 
+
+```{r}
+# class names
+names <- read_csv("../../EcoTaxa/data/ecopart_size+biovolume_colnames_middle_value.csv")
+
+# update the names
+uvppart <- uvppart %>% 
+  select(psampleid,latitude,longitude,sampledate,depth,watervolume,class19:class45) %>% 
+  pivot_longer(class19:class45,names_to="dbname",values_to="abundance") %>% 
+  # add geometric middle class 
+  left_join(select(names,dbname,geometric_mean)) %>% 
+  # update the NA of class45
+  mutate(geometric_mean=ifelse(dbname=="class45",26,geometric_mean))
+```
+
+
+# QC
+
+------------------------------------------------------------------------
+
+## Size range 
+
+Only keep classes 23 (mean > 0.2mm) to 37 (mean < 5mm). Below 23 are inconsistent classes across instruments, above 37 are too rare classes. 
+
+```{r}
+uvppart <- filter(uvppart,geometric_mean > 0.2 & geometric_mean < 5)
+```
+
+## Abundance threshold 
+
+Consider that if there are 4 or less ROI (particles) in a size bin, then all upper size bins should be removed. 
+There wasn't enough volume and particle sampled to have a statistical distribution and consider this is representative of the water column rather than driven by chance encounters. 
+
+```{r}
+uvppart <- uvppart %>% 
+  # make sure the data is ordered by sample, depth and size class
+  arrange(psampleid, depth, geometric_mean) %>%
+  # for each sample depth, set size classes to 0 when you hit 4 or less ROI
+  group_by(psampleid, depth) %>%
+  mutate(abundance = ifelse(cumany(abundance <= 4), 0, abundance)) %>%
+  ungroup() %>% 
+  # remove the size classes set to 0 
+  filter(abundance != 0)
+```
+
+## Depth 
+
+We focus on the surface (15-150m) and the open ocean (bottom depth > 200m). However, for these samples, we do not have a bottom depth so we can approximate it by considering that the UVP generally is lowered throughout the water column, and as such that if the maximum UVP depth is higher than 200m we consider the sample as open ocean. 
+
+```{r}
+uvppart <- uvppart %>%
+  # onlly keep samples with max depth > 200 (approximation, no depth bottom here - remove 2000)
+  group_by(psampleid) %>% 
+  mutate(depth_bottom=max(depth)) %>%
+  filter(depth_bottom >= 200) %>% 
+  # focus on the depths between 15 and 150m
+  filter(depth > 15 & depth < 150)
+```
+
+
+# Processing
+
+------------------------------------------------------------------------
+
+## Concentration 
+
+```{r}
+uvppart <- uvppart %>% 
+  # correct the abundance by the water volume sampled
+  mutate(conc=abundance/watervolume)
+```
+
+## Surface concentration: median over 150m and log10 transformation
+
+```{r}
+uvppart <- uvppart %>%
+  # log-transformed median concentration over depth 
+  group_by(psampleid,type,dbname,geometric_mean) %>% 
+  summarize(logconc=log10(median(conc))) %>% 
+  # log-transformed size 
+  mutate(logsize=log10(geometric_mean))
+```
+
+
+## Coefficients 
+
+```{r}
+x=uvppart %>%
+  # median over depth 
+  group_by(psampleid,type,dbname,geometric_mean) %>% 
+  summarize(logconc=log10(median(abundance/watervolume))) %>% 
+  filter(psampleid==9816) %>% 
+  mutate(logmean=log10(geometric_mean))
+ggplot(x,aes(x=logmean,y=logconc)) +
+  geom_point() + 
+  geom_line()
+
+# linear
+modLM = lm(data=x,logconc~logmean)
+modLM
+
+# polynomial
+modLM2 = lm(logconc~logmean + I(logmean^2), data = x)
+modLM2
+
+# new data
+# Create a sequence of x-values for smooth curves
+newdat <- data.frame(
+  logmean = seq(min(x$logmean), max(x$logmean), length.out = 100)
+)
+
+# Predictions
+newdat$pred_lm  <- predict(modLM,  newdata = newdat)
+newdat$pred_poly <- predict(modLM2, newdata = newdat)
+
+ggplot(x,aes(x=logmean,y=logconc)) +
+  geom_point() + 
+  geom_line() + 
+  geom_line(data = newdat, aes(x = logmean, y = pred_lm), color = "blue", linewidth = 1) +
+  geom_line(data = newdat, aes(x = logmean, y = pred_poly), color = "red", linetype = "dashed", linewidth = 1) 
+
+# rmse
+sqrt(mean(residuals(modLM)^2))
+sqrt(mean(residuals(modLM2)^2))
+```
+
+
+
+# Cephalopod formatting
+
+------------------------------------------------------------------------
+
+```{bash}
+mc cp --recursive s3/oidc-vsonnet/UVP_particles ~/work/PSDtoCarbonExport-short/data
+```
+
+# Cephalopod
+
+------------------------------------------------------------------------
+
+```{bash}
+cd ../functions
+# clone only the lastest commit snapshot 
+git clone --depth 1 https://github.com/alexschickele/CEPHALOPOD.git
+# remove the git file to have it as a regular folder
+rm -rf CEPHALOPOD/.git
+```

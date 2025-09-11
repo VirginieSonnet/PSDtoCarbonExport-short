@@ -52,7 +52,20 @@ gc()
 
 ------------------------------------------------------------------------
 
-For this proof of operability project we need: \* Ramondenc et al. carbon export database: in personal storage \* Climatologies: in personal storage for now, from Schickele et al. =\> meant to be updated for Ranini et al. =\> meant to be directly calculated within the EDITO \* UVP particles: Kiko et al. 2022 =\> meant to be expanded =\> meant to be available in EDITO automatically \* CEPHALOPOD: download from github =\> meant to be a process in EDITO
+For this proof of operability project we need:
+
+-   Ramondenc et al. carbon export database: in personal storage
+
+-   Climatologies: in personal storage for now, from Schickele et al. =\> meant to be updated for Ranini et al. =\> meant to be directly calculated within the EDITO
+
+-   UVP particles: Kiko et al. 2022 =\> meant to be expanded =\> meant to be available in EDITO automatically
+
+-   CEPHALOPOD: download from github =\> meant to be a process in EDITO
+
+```{bash}
+cd ..
+mkdir functions
+```
 
 # Carbon database
 
