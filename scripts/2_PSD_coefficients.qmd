@@ -45,7 +45,7 @@ gc()
 ```{r}
 #| results: hide
 
-# packages
+library(tidyverse)
 ```
 
 # Data
@@ -57,14 +57,17 @@ sp <- read_csv("../data/UVP_particles/transit_all_uvp_samples.csv")
 uvppart <- read_csv("../data/UVP_particles/transit_all_uvp_particles.csv")
 ```
 
-Let's add the real names and geometric size associated with the classes: 
+Let's add the real names and geometric size associated with the classes:
 
 ```{r}
 # class names
-names <- read_csv("../../EcoTaxa/data/ecopart_size+biovolume_colnames_middle_value.csv")
+names <- read_csv("../data/ecopart_size+biovolume_colnames_middle_value.csv")
 
 # update the names
 uvppart <- uvppart %>% 
+  # add location and time 
+  left_join(select(sp,psampleid,latitude,longitude,sampledate)) %>% 
+  # only keep the size classes and not biovolume
   select(psampleid,latitude,longitude,sampledate,depth,watervolume,class19:class45) %>% 
   pivot_longer(class19:class45,names_to="dbname",values_to="abundance") %>% 
   # add geometric middle class 
@@ -73,23 +76,21 @@ uvppart <- uvppart %>%
   mutate(geometric_mean=ifelse(dbname=="class45",26,geometric_mean))
 ```
 
-
 # QC
 
 ------------------------------------------------------------------------
 
-## Size range 
+## Size range
 
-Only keep classes 23 (mean > 0.2mm) to 37 (mean < 5mm). Below 23 are inconsistent classes across instruments, above 37 are too rare classes. 
+Only keep classes 23 (mean \> 0.2mm) to 37 (mean \< 5mm). Below 23 are inconsistent classes across instruments, above 37 are too rare classes.
 
 ```{r}
 uvppart <- filter(uvppart,geometric_mean > 0.2 & geometric_mean < 5)
 ```
 
-## Abundance threshold 
+## Abundance threshold
 
-Consider that if there are 4 or less ROI (particles) in a size bin, then all upper size bins should be removed. 
-There wasn't enough volume and particle sampled to have a statistical distribution and consider this is representative of the water column rather than driven by chance encounters. 
+Consider that if there are 4 or less ROI (particles) in a size bin, then all upper size bins should be removed. There wasn't enough volume and particle sampled to have a statistical distribution and consider this is representative of the water column rather than driven by chance encounters.
 
 ```{r}
 uvppart <- uvppart %>% 
@@ -103,9 +104,11 @@ uvppart <- uvppart %>%
   filter(abundance != 0)
 ```
 
-## Depth 
+## Depth
 
-We focus on the surface (15-150m) and the open ocean (bottom depth > 200m). However, for these samples, we do not have a bottom depth so we can approximate it by considering that the UVP generally is lowered throughout the water column, and as such that if the maximum UVP depth is higher than 200m we consider the sample as open ocean. 
+We focus on the surface (15-225m - chosen to have a minimum of matchups) and the open ocean (bottom depth \> 200m). However, for these samples, we do not always have a bottom depth so we can approximate it by considering that the UVP generally is lowered throughout the water column, and as such that if the maximum UVP depth is higher than 200m we consider the sample as open ocean.
+
+Note that this criteria will need to be adjusted for gliders in the extensive version.
 
 ```{r}
 uvppart <- uvppart %>%
@@ -114,15 +117,14 @@ uvppart <- uvppart %>%
   mutate(depth_bottom=max(depth)) %>%
   filter(depth_bottom >= 200) %>% 
   # focus on the depths between 15 and 150m
-  filter(depth > 15 & depth < 150)
+  filter(depth > 15 & depth < 225)
 ```
-
 
 # Processing
 
 ------------------------------------------------------------------------
 
-## Concentration 
+## Concentration
 
 ```{r}
 uvppart <- uvppart %>% 
@@ -130,7 +132,7 @@ uvppart <- uvppart %>%
   mutate(conc=abundance/watervolume)
 ```
 
-## Surface concentration: median over 150m and log10 transformation
+## Surface concentration: median over 225m and log10 transformation
 
 ```{r}
 uvppart <- uvppart %>%
@@ -141,67 +143,81 @@ uvppart <- uvppart %>%
   mutate(logsize=log10(geometric_mean))
 ```
 
+## Coefficients
 
-## Coefficients 
+We do a polynomial fit of degree 2, following the suggestion from Ranini et al. that this follows the curve better than a linear fit.
 
 ```{r}
-x=uvppart %>%
-  # median over depth 
-  group_by(psampleid,type,dbname,geometric_mean) %>% 
-  summarize(logconc=log10(median(abundance/watervolume))) %>% 
-  filter(psampleid==9816) %>% 
-  mutate(logmean=log10(geometric_mean))
-ggplot(x,aes(x=logmean,y=logconc)) +
-  geom_point() + 
-  geom_line()
+# group the data by sampleid
+fitted_models <- uvppart %>%
+  arrange(psampleid,dbname) %>%
+  group_by(psampleid,type) %>%
+  do({
+    # fit a polynomial model of degree 2
+    model <- lm(logconc ~ logsize + I(logsize^2), data = .)
+    
+    # rmse
+    rmse_val <- sqrt(mean(residuals(model)^2))
+    
+    # extract coefficients
+    coefs <- tidy(model)
+    coefs %>% 
+      bind_rows(tibble(
+        term = "RMSE",
+        estimate = rmse_val,
+      ))
+  }) %>%
+  ungroup()
 
-# linear
-modLM = lm(data=x,logconc~logmean)
-modLM
-
-# polynomial
-modLM2 = lm(logconc~logmean + I(logmean^2), data = x)
-modLM2
-
-# new data
-# Create a sequence of x-values for smooth curves
-newdat <- data.frame(
-  logmean = seq(min(x$logmean), max(x$logmean), length.out = 100)
-)
-
-# Predictions
-newdat$pred_lm  <- predict(modLM,  newdata = newdat)
-newdat$pred_poly <- predict(modLM2, newdata = newdat)
-
-ggplot(x,aes(x=logmean,y=logconc)) +
-  geom_point() + 
-  geom_line() + 
-  geom_line(data = newdat, aes(x = logmean, y = pred_lm), color = "blue", linewidth = 1) +
-  geom_line(data = newdat, aes(x = logmean, y = pred_poly), color = "red", linetype = "dashed", linewidth = 1) 
-
-# rmse
-sqrt(mean(residuals(modLM)^2))
-sqrt(mean(residuals(modLM2)^2))
-```
-
-
-
-# Cephalopod formatting
-
-------------------------------------------------------------------------
-
-```{bash}
-mc cp --recursive s3/oidc-vsonnet/UVP_particles ~/work/PSDtoCarbonExport-short/data
+# pivot the coefficients to wide format for easier access
+coefficients <- fitted_models %>%
+  select(psampleid,type,term,estimate) %>% 
+  pivot_wider(names_from = term, values_from = estimate) %>%
+  rename(Intercept = `(Intercept)`, Linear = `geometric_mean`, Quadratic = `I(geometric_mean^2)`) %>% 
+  pivot_longer(Intercept:RMSE,names_to = "term", values_to = "estimate") 
 ```
 
 # Cephalopod
 
 ------------------------------------------------------------------------
 
-```{bash}
-cd ../functions
-# clone only the lastest commit snapshot 
-git clone --depth 1 https://github.com/alexschickele/CEPHALOPOD.git
-# remove the git file to have it as a regular folder
-rm -rf CEPHALOPOD/.git
+## Formatting 
+
+Note that Cephalopod will need to be updated for negative values, and that Cephalopod-factor (Sonnet et al.) will be used for depth-resolved bins and QC in the extensive version. 
+
+```{r}
+cephalopod <- coefficients %>% 
+  group_by(term) %>% 
+  mutate(worms_id=term,
+         # correct the negative values of the coefficients for Cephalopod
+         estimate=estimate+abs(min(estimate))) %>% 
+  ungroup() %>% 
+  rename(measurementvalue=estimate) %>% 
+  left_join(distinct(uvppart,psampleid,
+                   decimallatitude=latitude,
+                   decimallongitude=longitude,sampledate)) %>% 
+  # set arbitrary depth, it will only be used in filtering 
+  mutate(depth=150,
+         measurementunit="no unit",
+         scientificname=worms_id,
+         taxonrank="Genus",
+         month=month(sampledate),
+         year=year(sampledate)) %>% 
+  select(psampleid,measurementvalue,measurementunit,worms_id,scientificname,taxonrank,month,year,depth,decimallatitude,decimallongitude)
 ```
+
+## Export 
+
+We can export it to our running session. 
+
+```{r}
+write_csv(cephalopod,"../data/cephalopod_power_law_coefficients.csv")
+```
+
+And copy it to our internal storage. 
+
+```{bash}
+mc cp ~/work/PSDtoCarbonExport-short/data/cephalopod_power_law_coefficients.csv s3/oidc-vsonnet
+```
+
+
