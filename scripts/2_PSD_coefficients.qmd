@@ -46,6 +46,7 @@ gc()
 #| results: hide
 
 library(tidyverse)
+source(here::here("config.R"))
 ```
 
 # Data
@@ -53,30 +54,19 @@ library(tidyverse)
 ------------------------------------------------------------------------
 
 ```{r}
-sp <- read_csv("../data/UVP_particles/transit_all_uvp_samples.csv")
-uvppart <- read_csv("../data/UVP_particles/transit_all_uvp_particles.csv")
+sp <- read_csv(file.path(cfg$project$data,"UVP_particles/particles_uvp_kiko2021_samples.csv"))
+uvppart <- read_csv(file.path(cfg$project$data,"UVP_particles/particles_uvp_kiko2021_particles.csv"))
 ```
 
 Let's add the real names and geometric size associated with the classes:
 
 ```{r}
 # class names
-names <- read_csv("../data/ecopart_size+biovolume_colnames_middle_value.csv")
-
-# update the names
-uvppart <- uvppart %>% 
-  # add location and time 
-  left_join(select(sp,psampleid,latitude,longitude,sampledate)) %>% 
-  # only keep the size classes and not biovolume
-  select(psampleid,latitude,longitude,sampledate,depth,watervolume,class19:class45) %>% 
-  pivot_longer(class19:class45,names_to="dbname",values_to="abundance") %>% 
-  # add geometric middle class 
-  left_join(select(names,dbname,geometric_mean)) %>% 
-  # update the NA of class45
-  mutate(geometric_mean=ifelse(dbname=="class45",26,geometric_mean))
-
-rm(names)
-gc()
+names <- tibble(classname=colnames(uvppart)) %>% 
+  mutate(lower=as.numeric(str_extract(classname,"(?<=ESD:\\s?)\\d+\\.?\\d+")), # find decimal after ESD: with or without spaces
+         upper=as.numeric(str_extract(classname,"(?<=-)\\d+\\.?\\d+"))) %>% 
+  # geometric mean 
+  mutate(geometric_mean=sqrt(lower * upper))
 ```
 
 # QC
@@ -88,25 +78,49 @@ gc()
 Only keep classes 23 (mean \> 0.2mm) to 37 (mean \< 5mm). Below 23 are inconsistent classes across instruments, above 37 are too rare classes.
 
 ```{r}
-uvppart <- filter(uvppart,geometric_mean > 0.2 & geometric_mean < 5)
+uvppart <- uvppart %>% 
+  pivot_longer(`Part conc frac [#/l] (ESD: 0.0403-0.0508 mm)`:`Part conc frac [#/l] (ESD: >26 mm)`,
+               names_to="classname",
+               values_to="conc") %>% 
+  left_join(names) %>% 
+  filter(geometric_mean > 0.2 & geometric_mean < 5)
 ```
 
 ## Abundance threshold
 
 Consider that if there are 4 or less ROI (particles) in a size bin, then all upper size bins should be removed. There wasn't enough volume and particle sampled to have a statistical distribution and consider this is representative of the water column rather than driven by chance encounters.
 
-Note: this QC needs to take into account the number of classes left (i.e. 3 classes, especially the first ones will focus on the small bell shape at the beginning rather than the whole spectra shape)
+TODO: need to add a check so that you don't remove 0 abundances that are between two correct values (or look at it - but seems to be a small number of data)
 
 ```{r}
 uvppart <- uvppart %>% 
+  # convert to abundance 
+  mutate(abundance=watervolume*conc) %>% 
   # make sure the data is ordered by sample, depth and size class
   arrange(psampleid, depth, geometric_mean) %>%
   # for each sample depth, set size classes to 0 when you hit 4 or less ROI
-  group_by(psampleid, depth) %>%
+  group_by(psampleid, depth,geometric_mean) %>%
   mutate(abundance = ifelse(cumany(abundance <= 4), 0, abundance)) %>%
   ungroup() %>% 
   # remove the size classes set to 0 
   filter(abundance != 0)
+gc()
+```
+
+## Number of classes threshold
+
+This QC needs to take into account the number of classes left (i.e. 3 classes, especially the first ones will focus on the small bell shape at the beginning rather than the whole spectra shape). If you have less than 4 classes, the samples are removed. 
+
+```{r}
+uvppart %>% 
+  count(psampleid,depth) %>% 
+  ggplot(aes(x=n)) +
+  geom_histogram(color="white",fill="black")
+
+uvppart <- uvppart %>% 
+  group_by(psampleid,depth) %>% 
+  filter(n() >= 4)
+gc()
 ```
 
 ## Depth
@@ -132,10 +146,12 @@ gc()
 
 ## Concentration
 
+Not needed in the version using Kiko et al 2021, probably needed for the EcoPart export. 
+
 ```{r}
-uvppart <- uvppart %>% 
-  # correct the abundance by the water volume sampled
-  mutate(conc=abundance/watervolume)
+#uvppart <- uvppart %>% 
+#  # correct the abundance by the water volume sampled
+#  mutate(conc=abundance/watervolume)
 ```
 
 ## Surface concentration: median over 225m and log10 transformation
@@ -143,7 +159,7 @@ uvppart <- uvppart %>%
 ```{r}
 uvppart <- uvppart %>%
   # log-transformed median concentration over depth 
-  group_by(psampleid,dbname,geometric_mean) %>% 
+  group_by(psampleid,geometric_mean) %>% 
   summarize(logconc=log10(median(conc))) %>% 
   # log-transformed size 
   mutate(logsize=log10(geometric_mean))
@@ -156,7 +172,7 @@ We do a polynomial fit of degree 2, following the suggestion from Ranini et al. 
 ```{r}
 # group the data by sampleid
 fitted_models <- uvppart %>%
-  arrange(psampleid,dbname) %>%
+  arrange(psampleid,geometric_mean) %>%
   group_by(psampleid) %>%
   do({
     # fit a polynomial model of degree 2
@@ -204,7 +220,8 @@ cephalopod <- coefficients %>%
   rename(measurementvalue=estimate) %>% 
   left_join(distinct(sp,psampleid,
                    decimallatitude=latitude,
-                   decimallongitude=longitude,sampledate)) %>% 
+                   decimallongitude=longitude,
+                   sampledate)) %>% 
   # set arbitrary depth, it will only be used in filtering 
   mutate(depth=150,
          measurementunit="no unit",
@@ -220,7 +237,7 @@ cephalopod <- coefficients %>%
 We can export it to our running session.
 
 ```{r}
-write_csv(cephalopod,"../data/cephalopod_power_law_coefficients.csv")
+write_csv(cephalopod,file.path(cfg$project$data,"cephalopod_power_law_coefficients.csv"))
 ```
 
 And copy it to our internal storage.
