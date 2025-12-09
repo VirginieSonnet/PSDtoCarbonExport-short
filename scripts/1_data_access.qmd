@@ -72,7 +72,7 @@ mkdir functions
 ------------------------------------------------------------------------
 
 ```{bash}
-mc cp s3/oidc-vsonnet/Global_POC_Database_21022025.csv ~/work/PSDtoCarbonExport-short/data
+mc cp s3/oidc-vsonnet/Global_POC_Database_2025-07-01.csv ~/work/PSDtoCarbonExport-short/data
 ```
 
 # Climatologies
