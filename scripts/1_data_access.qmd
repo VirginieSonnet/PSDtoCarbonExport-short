@@ -65,6 +65,7 @@ For this proof of operability project we need:
 ```{bash}
 cd ..
 mkdir functions
+mkdir data/output
 ```
 
 # Carbon database
@@ -101,4 +102,14 @@ cd ../functions
 git clone --depth 1 https://github.com/alexschickele/CEPHALOPOD.git
 # remove the git file to have it as a regular folder
 rm -rf CEPHALOPOD/.git
+```
+
+If needed: Cephaloplot
+
+```{r}
+cd ../functions
+# clone only the lastest commit snapshot 
+git clone --depth 1 https://github.com/VirginieSonnet/Cephaloplot.git
+# remove the git file to have it as a regular folder
+rm -rf Cephaloplot/.git
 ```

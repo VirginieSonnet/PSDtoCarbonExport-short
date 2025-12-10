@@ -7,16 +7,18 @@
 # All will be called in the config file later
 rm(list=ls())
 closeAllConnections()
-setwd("/home/onyxia/work/PSDtoCarbonExport-short/functions/CEPHALOPOD")
+source(here::here("config.R"))
+setwd(path_cephalopod)
 if(!require("reticulate")){install.packages("reticulate")}
 source(file = "./code/00_config.R")
 run_name <- "PSD-short"
+
 MAX_CLUSTER = 20
 
 # --- 1. List the available species
 # Within the user defined selection criteria
 list_bio <- list_bio_wrapper(FOLDER_NAME = run_name,
-                             DATA_SOURCE = "../../data/cephalopod_power_law_coefficients.csv", # occurrence ; abundance ; biomass ; MAG; or path to a .csv file
+                             DATA_SOURCE = file.path(cfg$project$data,"cephalopod_power_law_coefficients.csv"), # occurrence ; abundance ; biomass ; MAG; or path to a .csv file
                              SAMPLE_SELECT = list(MIN_SAMPLE = 50, TARGET_MIN_DEPTH = 0, TARGET_MAX_DEPTH = 300, START_YEAR = 1950, STOP_YEAR = 2026))
 
 # ------------------------------------------------------------------------------
@@ -38,7 +40,7 @@ subfolder_list <- run_init(FOLDER_NAME = run_name,
                            LOAD_FROM = NULL,
                            DATA_TYPE = "continuous", # presence_only ; continuous ; proportions
                            ENV_VAR = NULL,
-                           ENV_PATH = "../../data/Schickele_climatologies", # replace by local path to environmental predictors : https://data.d4science.net/m9WC
+                           ENV_PATH = file.path(cfg$project$data,"Schickele_climatologies"), # replace by local path to environmental predictors : https://data.d4science.net/m9WC
                            METHOD_PA = "density",
                            PER_RANDOM = 0,
                            PA_ENV_STRATA = TRUE,

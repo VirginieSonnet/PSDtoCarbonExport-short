@@ -109,7 +109,7 @@ gc()
 
 ## Number of classes threshold
 
-This QC needs to take into account the number of classes left (i.e. 3 classes, especially the first ones will focus on the small bell shape at the beginning rather than the whole spectra shape). If you have less than 4 classes, the samples are removed. 
+This QC needs to take into account the number of classes left (i.e. 3 classes, especially the first ones will focus on the small bell shape at the beginning rather than the whole spectra shape). If you have less than 4 classes, the samples are removed.
 
 ```{r}
 uvppart %>% 
@@ -146,7 +146,7 @@ gc()
 
 ## Concentration
 
-Not needed in the version using Kiko et al 2021, probably needed for the EcoPart export. 
+Not needed in the version using Kiko et al 2021, probably needed for the EcoPart export.
 
 ```{r}
 #uvppart <- uvppart %>% 
