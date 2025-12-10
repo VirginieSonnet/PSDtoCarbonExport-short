@@ -1,0 +1,175 @@
+---
+title: "Check the Cephalopod output and select one" # title of the notebook
+author: "Virginie Sonnet" 
+date: 2025-09-10
+description: 
+    Process Cephalopod output from . 
+html: 
+theme: sandstone
+#mainfont: "LM Roman"
+fontsize: 0.99em
+toc: true # table of contents
+toc-depth: 5 
+toc-location: left # table of contents on the left 
+lightbox: TRUE # allows to click on an image to zoom in the HTML document
+embed-resources: true # avoid having dependencies in an extra folder
+smooth-scroll: true
+editor: visual
+code-overflow: wrap
+code-fold: false
+execute:
+    eval: true # run the code chunks FALSE/TRUE
+    echo: true # print the source code FALSE/TRUE
+    error: true # print error messages FALSE/TRUE
+    message: false # print any message FALSE/TRUE
+    warning: false # print warning message FALSE/TRUE
+    cache: false 
+---
+
+```{r}
+#| eval: false
+#| echo: false
+
+Other outputs: pdf_document, html_notebook, word_document 
+The HTML below just says to use the "LM Roman" family as font (kind of Arial?) and if you want the Latex font, you just need "Latin Modern Roman". The line below indicates that the text has to be justified. 
+```
+
+```{r}
+#| include: false
+
+# make sure that no object is in the environment and collect the garbage 
+rm(list=ls())
+gc()
+```
+
+```{r}
+#| results: hide
+
+library(tidyverse)
+source(here::here("config.R"))
+
+# packages
+source(file.path(path_cephaloplot,"functions/required_packages.R"))
+
+# functions 
+source(file.path(path_cephaloplot,"functions/extract.R")) 
+source(file.path(path_cephaloplot,"functions/categories.R")) 
+source(file.path(path_cephaloplot,"functions/plot.R")) 
+```
+
+# Extract 
+
+------------------------------------------------------------------------------------
+
+```{r}
+# path to the data 
+project_wd <- file.path(path_cephalopod,"output/")
+
+# -- 1 -- subfolders
+subfolders <- c("Intercept","Linear","Quadratic")
+
+# --2 -- observations
+obs <- tibble()
+for (i in subfolders){
+  tmp <- extract_observations(project_wd, FOLDER_NAME = "PSD-short", SUBFOLDER_NAME=i) %>% 
+    mutate(term=i)
+  obs <- rbind(obs,tmp)
+}
+# manual correction for the negative minimum correction pre-Cephalopod - TO AUTOMATIZE!!
+obs <- obs %>% 
+  mutate(measurementvalue=case_when(term=="Intercept"~measurementvalue-2.669,
+                                    term=="Linear"~measurementvalue-6.689,
+                                    term=="Quadratic"~measurementvalue-5.6847))
+
+# -- 3 -- 
+pred <- tibble()
+for (i in subfolders){
+  tmp <- extract_prediction(project_wd, FOLDER_NAME = "PSD-short", SUBFOLDER_NAME=i,
+                            model="RF",m=1:12) %>% 
+    mutate(term=i)
+  pred <- rbind(pred,tmp)
+}
+# manual correction for the negative minimum correction pre-Cephalopod - TO AUTOMATIZE!!
+pred <- pred %>% 
+  mutate(predictedvalue=case_when(term=="Intercept"~predictedvalue-2.669,
+                                    term=="Linear"~predictedvalue-6.689,
+                                    term=="Quadratic"~predictedvalue-5.6847))
+```
+
+# Plot 
+
+------------------------------------------------------------------------------------
+
+## Observations
+
+```{r}
+# observations
+lim <- round(quantile(obs$measurementvalue[obs$term=="Intercept"],c(0.025,0.975),na.rm=TRUE)/0.5)*0.5
+plot_observations(filter(obs,term=="Intercept"),
+                  colors=c("#2D2B63","#FB3C44","#F7FF84"), alpha=0.7,
+                  correct.lightness=TRUE,lim=lim,legend_position="bottom",
+                  lab="Particle size spectra - Intercept)",
+                  land=NULL,landcolor="grey85",landfill="#E8E8E8",
+                  latitude_profile=TRUE,title="Intercept") 
+
+lim <- round(quantile(obs$measurementvalue[obs$term=="Linear"],c(0.025,0.975),na.rm=TRUE)/0.1)*0.1
+plot_observations(filter(obs,term=="Linear"),
+                  colors=c("#2D2B63","#FB3C44","#F7FF84"), alpha=0.7,
+                  correct.lightness=TRUE,lim=lim,legend_position="bottom",
+                  lab="Particle size spectra - Linear",
+                  land=NULL,landcolor="grey85",landfill="#E8E8E8",
+                  latitude_profile=TRUE,title="Linear") 
+
+
+lim <- round(quantile(obs$measurementvalue[obs$term=="Quadratic"],c(0.025,0.975),na.rm=TRUE)/0.1)*0.1
+plot_observations(filter(obs,term=="Quadratic"),
+                  colors=c("#2D2B63","#FB3C44","#F7FF84"), alpha=0.7,
+                  correct.lightness=TRUE,lim=lim,legend_position="bottom",
+                  lab="Particle size spectra - Quadratic",
+                  land=NULL,landcolor="grey85",landfill="#E8E8E8",
+                  latitude_profile=TRUE,title="Quadratic") 
+```
+## Performance
+
+```{r}
+# performance
+plot_performance(perf,plot_type="combined",
+                 models=c("GLM","GAM","BRT","RF","ENSEMBLE"),
+                 threshold_color="darkgreen",threshold_size=2) + 
+  facet_wrap(.~term) + 
+  theme(text=element_text(size=15))
+```
+
+## Predictions 
+
+```{r}
+# with a latitudinal profile
+ylim <- round(quantile(pred$predictedvalue[pred$term=="Intercept"],c(0.025,0.975),na.rm=TRUE)/0.1)*0.1
+plot_prediction(output=filter(pred,term=="Intercept"), 
+                ylim=ylim,
+                ylab="Particle size spectra - Intercept",
+                ycolors=c("#2D2B63","#FB3C44","#F7FF84"), 
+                correct.lightness=TRUE,legend_position="bottom",
+                latitude_profile=TRUE,latitude_position="left",
+                title="Intercept")
+
+# with a latitudinal profile
+ylim <- round(quantile(pred$predictedvalue[pred$term=="Linear"],c(0.025,0.975),na.rm=TRUE)/0.1)*0.1
+plot_prediction(output=filter(pred,term=="Linear"), 
+                ylim=ylim,ylab="Particle size spectra - Linear",
+                ycolors=c("#2D2B63","#FB3C44","#F7FF84"),
+                correct.lightness=TRUE,legend_position="bottom",
+                latitude_profile=TRUE,latitude_position="left",
+                title="Linear")
+
+# with a latitudinal profile
+ylim <- round(quantile(pred$predictedvalue[pred$term=="Quadratic"],c(0.025,0.975),na.rm=TRUE)/0.1)*0.1
+plot_prediction(output=filter(pred,term=="Quadratic"), 
+                ylim=ylim,ylab="Particle size spectra - Quadratic",
+                ycolors=c("#2D2B63","#FB3C44","#F7FF84"),
+                correct.lightness=TRUE,legend_position="bottom",
+                latitude_profile=TRUE,latitude_position="left",
+                title="Quadratic")
+```
+
+
